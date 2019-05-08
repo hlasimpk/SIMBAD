@@ -26,7 +26,7 @@ from simbad.util.matthews_prob import MatthewsProbability, SolventContent
 
 from simbad.core.lattice_score import LatticeSearchResult
 from simbad.core.amore_score import AmoreRotationScore
-from simbad.core.phaser_score import PhaserRotationScore
+from simbad.core.phaser_score import PhaserRotationScore, PhaserTranslationScore
 from simbad.core.mr_score import MrScore
 
 logger = logging.getLogger(__name__)
@@ -414,7 +414,8 @@ class MrSubmit(object):
         diff_mapout2 = os.path.join(ref_workdir,
                                     '{0}_refmac_fofcwt.map'.format(result.pdb_code))
 
-        if isinstance(result, AmoreRotationScore) or isinstance(result, PhaserRotationScore):
+        if isinstance(result, AmoreRotationScore) or isinstance(result, PhaserRotationScore) or \
+                isinstance(result, PhaserTranslationScore):
             pdb_struct = PdbStructure()
             pdb_struct.from_file(result.dat_path)
             mr_pdbin = os.path.join(self.output_dir,
