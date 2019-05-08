@@ -48,7 +48,7 @@ class Phaser(object):
     and logfile can be specified.
     """
 
-    def __init__(self, hklin, f, i, logfile, nmol, pdbin, sigf, sigi, solvent, timeout, work_dir, hires, eid):
+    def __init__(self, hklin, f, i, logfile, nmol, pdbin, sigf, sigi, solvent, timeout, work_dir, hires, eid, translate):
         self._f = None
         self._hires = None
         self._hklin = None
@@ -60,6 +60,7 @@ class Phaser(object):
         self._sigi = None
         self._solvent = None
         self._timeout = None
+        self._translate = None
         self._work_dir = None
 
         self.eid = eid
@@ -74,6 +75,7 @@ class Phaser(object):
         self.sigi = sigi
         self.solvent = solvent
         self.timeout = timeout
+        self.translate = translate
         self.work_dir = work_dir
 
     @property
@@ -186,6 +188,16 @@ class Phaser(object):
         """Define the time in minutes before phaser should be killed"""
         self._timeout = timeout
 
+    @property
+    def translate(self):
+        """Whether to run a translation search or not"""
+        return self._translate
+
+    @translate.setter
+    def translate(self, translate):
+        """Define whether to run a translation search or not"""
+        self._translate = translate
+
     def run(self):
         """Function to run rotation search using PHASER"""
 
@@ -217,13 +229,17 @@ class Phaser(object):
             i.setREFL_DATA(run_mr_data.getREFL_DATA())
             i.setSPAC_HALL(run_mr_data.getSpaceGroupHall())
             i.setCELL6(run_mr_data.getUnitCell())
-            i.setROOT("phaser_mr_output")
+            i.setROOT("phaser_rot_output")
             i.addENSE_PDB_ID("PDB", self.pdbin, float(self.eid))
             i.setENSE_DISA_CHEC('PDB', True)
             i.setCOMP_BY("SOLVENT")
             i.setCOMP_PERC(self.solvent)
             i.addSEAR_ENSE_NUM('PDB', self.nmol)
             i.setRFAC_USE(False)
+            if self.translate:
+                i.setKEYW(True)
+                i.setPEAK_ROTA_SELE("NUMBER")
+                i.setPEAK_ROTA_CUTO(1)
             if self.timeout != 0:
                 i.setKILL_TIME(self.timeout)
             run_mr_rot = runMR_FRF(i)
@@ -263,10 +279,11 @@ if __name__ == "__main__":
                        help="The estimated solvent content of the crystal")
     group.add_argument('-timeout', type=int, default=0,
                        help="The time in mins before phaser will kill a job")
+    group.add_argument('-translate', type=bool, default=False,
+                       help="Whether to run a translation search or not")
     group.add_argument('-work_dir', type=str,
                        help="Path to the working directory")
     args = parser.parse_args()
 
-    phaser = Phaser(args.hklin, args.f, args.i, args.logfile, args.nmol, args.pdbin, args.sigf, args.sigi, args.solvent,
-                    args.timeout, args.work_dir, args.hires, args.eid)
+    phaser = Phaser(**vars(args))
     phaser.run()
