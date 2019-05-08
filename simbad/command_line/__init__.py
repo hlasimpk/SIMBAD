@@ -292,6 +292,8 @@ def _argparse_mr_options(p):
                     help='Path to the refinement program to use.')
     sg.add_argument('-refine_cycles', type=int,
                     help='The number of refinement cycles to run [default: 30]')
+    sg.add_argument('--translate', default=False,
+                    action="store_true", help="Perform translation function")
     sg.add_argument('-pdb_db', type=str,
                     help='Path to local copy of the PDB, this is needed if there is no internet access')
     sg.add_argument('-phaser_kill', type=int, default=30,
@@ -356,7 +358,8 @@ def _simbad_contaminant_search(args):
                                    amore_exe=args.amore_exe,
                                    max_to_keep=args.max_contaminant_results,
                                    skip_mr=args.skip_mr,
-                                   process_all=args.process_all)
+                                   process_all=args.process_all,
+                                   translate=args.translate)
     rotation_search.run(
         os.path.abspath(args.cont_db),
         nproc=args.nproc,
