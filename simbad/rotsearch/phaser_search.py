@@ -22,6 +22,7 @@ import simbad.core.phaser_score
 import simbad.parsers.phaser_parser
 import simbad.parsers.refmac_parser
 import simbad.parsers.rotsearch_parser
+import simbad.parsers.transearch_parser
 import simbad.util
 import simbad.util.pdb_util
 import simbad.util.mtz_util
@@ -63,12 +64,13 @@ class PhaserRotationSearch(object):
     """
 
     def __init__(self, mtz, mr_program, tmp_dir, work_dir, max_to_keep=20, skip_mr=False, eid=70, process_all=False,
-                 **kwargs):
+                 translate=False, **kwargs):
         self.eid = eid
         self.max_to_keep = max_to_keep
         self.mr_program = mr_program
         self.mtz = mtz
         self.tmp_dir = tmp_dir
+        self.translate = translate
         self.work_dir = work_dir
         self.skip_mr = skip_mr
         self.process_all = process_all
@@ -199,7 +201,10 @@ class PhaserRotationSearch(object):
                      p.map(self, sorted_dat_models[i:i + chunk_size]) if i is not None]
 
                 if len(phaser_files) > 0:
-                    logger.info("Running PHASER rotation functions")
+                    if self.translate:
+                        logger.info("Running PHASER rotation/translation functions")
+                    else:
+                        logger.info("Running PHASER rotation functions")
                     phaser_logs, dat_models = zip(*phaser_files)
                     simbad.util.submit_chunk(collector, self.script_log_dir, nproc, 'simbad_phaser',
                                                   submit_qtype, submit_queue, True, monitor, self.rot_succeeded_log)
@@ -207,19 +212,31 @@ class PhaserRotationSearch(object):
                     for dat_model, phaser_log in zip(dat_models, phaser_logs):
                         base = os.path.basename(phaser_log)
                         pdb_code = base.replace("phaser_", "").replace(".log", "")
-                        try:
-                            phaser_rotation_parser = simbad.parsers.rotsearch_parser.PhaserRotsearchParser(phaser_log)
-                            if phaser_rotation_parser.rfact:
-                                phaser_rotation_parser.llg = 100
-                                phaser_rotation_parser.rfz = 10
-                            score = simbad.core.phaser_score.PhaserRotationScore(pdb_code, dat_model,
-                                                                                 phaser_rotation_parser.llg,
-                                                                                 phaser_rotation_parser.rfz)
+                        if self.translate:
+                            try:
+                                phaser_translation_parser = simbad.parsers.transearch_parser.PhaserTransearchParser(
+                                    phaser_log
+                                )
+                                score = simbad.core.phaser_score.PhaserTranslationScore(pdb_code, dat_model,
+                                                                                        phaser_translation_parser.rllg,
+                                                                                        phaser_translation_parser.rfz,
+                                                                                        phaser_translation_parser.tllg,
+                                                                                        phaser_translation_parser.tfz)
+                                if phaser_translation_parser.tfz:
+                                    results += [score]
+                            except IOError:
+                                pass
+                        else:
+                            try:
+                                phaser_rotation_parser = simbad.parsers.rotsearch_parser.PhaserRotsearchParser(phaser_log)
+                                score = simbad.core.phaser_score.PhaserRotationScore(pdb_code, dat_model,
+                                                                                     phaser_rotation_parser.llg,
+                                                                                     phaser_rotation_parser.rfz)
 
-                            if phaser_rotation_parser.rfz:
-                                results += [score]
-                        except IOError:
-                            pass
+                                if phaser_rotation_parser.rfz:
+                                    results += [score]
+                            except IOError:
+                                pass
 
                 else:
                     logger.critical("No structures to be trialled")
@@ -245,29 +262,49 @@ class PhaserRotationSearch(object):
         rot_log = template_rot_log.format(dat_model.pdb_code)
         tmp_dir = self.template_tmp_dir.format(dat_model.pdb_code)
 
-        phaser_cmd = ["simbad.rotsearch.phaser_rotation_search",
-                      "-eid", self.eid,
-                      "-hklin", self.mtz,
-                      "-f", self.mtz_labels.f,
-                      "-sigf", self.mtz_labels.sigf,
-                      "-i", self.mtz_labels.i,
-                      "-sigi", self.mtz_labels.sigi,
-                      "-pdbin", pdb_model,
-                      "-logfile", rot_log,
-                      "-solvent", dat_model.solvent,
-                      "-nmol", dat_model.nmol,
-                      "-work_dir", tmp_dir,
-                      ]
-        phaser_cmd = " ".join(str(e) for e in phaser_cmd)
+        phaser_rot_cmd = ["simbad.rotsearch.phaser_rotation_search",
+                          "-eid", self.eid,
+                          "-hklin", self.mtz,
+                          "-f", self.mtz_labels.f,
+                          "-sigf", self.mtz_labels.sigf,
+                          "-i", self.mtz_labels.i,
+                          "-sigi", self.mtz_labels.sigi,
+                          "-pdbin", pdb_model,
+                          "-logfile", rot_log,
+                          "-solvent", dat_model.solvent,
+                          "-translate", self.translate,
+                          "-nmol", dat_model.nmol,
+                          "-work_dir", tmp_dir,
+                          ]
+        phaser_rot_cmd = " ".join(str(e) for e in phaser_rot_cmd)
 
         cmd = [
             [EXPORT, "CCP4_SCR=" + tmp_dir],
             ["mkdir", "-p", "$CCP4_SCR\n"],
             [CMD_PREFIX, "$CCP4/bin/ccp4-python", "-c", conv_py, os.linesep],
-            [CMD_PREFIX, "$CCP4/bin/ccp4-python", "-m", phaser_cmd, os.linesep],
-            ["rm", "-rf", "$CCP4_SCR\n"],
-            [EXPORT, "CCP4_SCR=" + self.ccp4_scr],
+            [CMD_PREFIX, "$CCP4/bin/ccp4-python", "-m", phaser_rot_cmd, os.linesep]
         ]
+
+        if self.translate:
+            rlist = os.path.join(tmp_dir, "phaser_rot_output.rlist")
+            phaser_tran_cmd = ["simbad.rotsearch.phaser_translation_search",
+                               "-eid", self.eid,
+                               "-hklin", self.mtz,
+                               "-f", self.mtz_labels.f,
+                               "-sigf", self.mtz_labels.sigf,
+                               "-i", self.mtz_labels.i,
+                               "-sigi", self.mtz_labels.sigi,
+                               "-pdbin", pdb_model,
+                               "-logfile", rot_log,
+                               "-rlist", rlist,
+                               "-solvent", dat_model.solvent,
+                               "-work_dir", tmp_dir,
+                               ]
+            phaser_tran_cmd = " ".join(str(e) for e in phaser_tran_cmd)
+            cmd.append([CMD_PREFIX, "$CCP4/bin/ccp4-python", "-m", phaser_tran_cmd, os.linesep])
+
+        cmd.append(["rm", "-rf", "$CCP4_SCR\n"])
+        cmd.append([EXPORT, "CCP4_SCR=" + self.ccp4_scr])
 
         phaser_script = Script(directory=self.script_log_dir, prefix="phaser_", stem=dat_model.pdb_code)
         for c in cmd:
@@ -288,20 +325,29 @@ class PhaserRotationSearch(object):
             No results found
         """
         from simbad.util import summarize_result
-        columns = [
-            "llg", "rfz"
-        ]
+        if self.translate:
+            columns = ["rllg", "rfz", "tllg", "tfz"]
+        else:
+            columns = ["llg", "rfz"]
         summarize_result(self.search_results,
                          csv_file=csv_file, columns=columns)
 
     @property
     def search_results(self):
-        return sorted(self._search_results, key=lambda x: float(x.rfz), reverse=True)[:self.max_to_keep]
+        if self.translate:
+            return sorted(self._search_results, key=lambda x: float(x.tfz), reverse=True)[:self.max_to_keep]
+        else:
+            return sorted(self._search_results, key=lambda x: float(x.rfz), reverse=True)[:self.max_to_keep]
 
     @staticmethod
     def _rot_job_succeeded(phaser_rfz_score):
         """Check values for job success"""
         return phaser_rfz_score > 7
+
+    @staticmethod
+    def _tran_job_succeeded(phaser_tfz_score):
+        """Check values for job success"""
+        return phaser_tfz_score > 10
 
     def rot_succeeded_log(self, log):
         """Check a rotation search job for it's success
@@ -321,13 +367,25 @@ class PhaserRotationSearch(object):
             return False
 
         rot_prog, pdb = os.path.basename(log).replace('.log', '').split('_', 1)
-        rotsearch_parser = simbad.parsers.rotsearch_parser.PhaserRotsearchParser(log)
         dat_model = [s for s in self.simbad_dat_files if pdb in s][0]
-        score = simbad.core.phaser_score.PhaserRotationScore(
-            pdb, dat_model, rotsearch_parser.llg, rotsearch_parser.rfz
-        )
+        if self.translate:
+            rotsearch_parser = simbad.parsers.transearch_parser.PhaserTransearchParser(log)
+            score = simbad.core.phaser_score.PhaserTranslationScore(
+                pdb, dat_model,
+                rotsearch_parser.rllg, rotsearch_parser.rfz,
+                rotsearch_parser.tllg, rotsearch_parser.tfz
+            )
+            success = self._rot_job_succeeded(rotsearch_parser.rfz) or self._tran_job_succeeded(rotsearch_parser.tfz)
+        else:
+            rotsearch_parser = simbad.parsers.rotsearch_parser.PhaserRotsearchParser(log)
+            score = simbad.core.phaser_score.PhaserRotationScore(
+                pdb, dat_model,
+                rotsearch_parser.llg, rotsearch_parser.rfz
+            )
+            success = self._rot_job_succeeded(rotsearch_parser.rfz)
         results = [score]
-        if self._rot_job_succeeded(rotsearch_parser.rfz) or rotsearch_parser.rfact:
+
+        if success:
             if pdb not in self.tested:
                 self.tested.append(pdb)
                 output_dir = os.path.join(self.work_dir, "mr_search")
