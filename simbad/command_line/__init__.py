@@ -444,7 +444,8 @@ def _simbad_morda_search(args):
                                    amore_exe=args.amore_exe,
                                    max_to_keep=args.max_morda_results,
                                    skip_mr=args.skip_mr,
-                                   process_all=args.process_all)
+                                   process_all=args.process_all,
+                                   translate=args.translate)
     rotation_search.run(
         args.morda_db,
         nproc=args.nproc,
